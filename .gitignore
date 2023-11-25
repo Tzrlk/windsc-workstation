@@ -1,0 +1,5 @@
+*.log
+
+# IntelliJ
+.idea/
+*.iml
