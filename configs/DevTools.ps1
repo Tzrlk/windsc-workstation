@@ -1,8 +1,12 @@
-Configuration DevtoolsConfig {
+#!/usr/bin/env pwsh
+#Requires -PSEdition Core
+#Requires -Modules @{ ModuleName="PSDesiredStateConfiguration"; ModuleVersion="2.0"; MaximumVersion="2.99" }
+#Requires -Modules PSDscResources, cChoco
 
+Configuration Devtools {
+
+    Import-DscResource –Module PSDscResources
 	Import-DscResource -Module cChoco
-    Import-DscResource -Module xPSDesiredStateConfiguration
-    Import-DscResource –Module PSDesiredStateConfiguration
 
     cChocoPackageInstaller vim {
 		Name      = 'vim'

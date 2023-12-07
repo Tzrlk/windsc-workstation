@@ -1,8 +1,13 @@
-Import-Module cChoco
-Configuration Powershell {
+#!/usr/bin/env pwsh
+#Requires -PSEdition Core
+#Requires -Modules @{ ModuleName="PSDesiredStateConfiguration"; ModuleVersion="2.0"; MaximumVersion="2.99" }
+#Requires -Modules PSDscResources, cChoco
+
+Import-Module PSDesiredStateConfiguration -MinimumVersion 2.0 -MaximumVersion 2.99
+
+configuration Powershell {
 	Import-DscResource -Module cChoco
- 	Import-DscResource -Module xPSDesiredStateConfiguration
-  	Import-DscResource -Module PSDesiredStateConfiguration
+  	Import-DscResource -Module PSDscResources
 
 	# Ensures that powershell 7 has been installed.
 	File powershellExec {

@@ -20,7 +20,7 @@
 param (
 
     [Parameter(Position=0)]
-    [String[]] $Tasks
+    [String[]] $Tasks = @()
 
 )
 
@@ -28,68 +28,25 @@ $ErrorActionPreference = 'Stop'
 
 if ([System.IO.Path]::GetFileName($MyInvocation.ScriptName) -ne 'Invoke-Build.ps1') {
     Import-Module 'InvokeBuild'
-        
+	Write-Debug "Tasks: $Tasks"
+	Write-Debug "File:  $( $MyInvocation.MyCommand.Path )"
     Invoke-Build -Task $Tasks -File $MyInvocation.MyCommand.Path @PSBoundParameters
     return
 }
 
-# TODO: Put this in its own file.
-function Display-Status {
+. ./lib/Format-DscStatus.ps1
+. ./lib/Write-ScriptAnalyzerCheckstyle.ps1
 
-    [CmdletBinding()]
-    param(
-
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNull()]
-        [Object]
-        $Status
-
-    )
-
-    Write-Output 'Resolved:'
-    if ( $Status.ResourcesInDesiredState ) {
-        $Status.ResourcesInDesiredState | ForEach-Object {
-            $LocationArgs = $_.SourceInfo.Replace("${PSScriptRoot}\", '').Replace('::', ' ').Split()
-            [PSCustomObject]@{
-                Name = $_.InstanceName
-                Type = $_.ResourceName
-                File = $LocationArgs[0]
-                Line = $LocationArgs[1]
-            }
-
-        } | Format-Table
-    }
-
-    Write-Output 'Unresolved:'
-    if ( $Status.ResourcesNotInDesiredState ) {
-        $Status.ResourcesNotInDesiredState | ForEach-Object {
-            $LocationArgs = $_.SourceInfo.Replace("${PSScriptRoot}\", '').Replace('::', ' ').Split()
-            [PSCustomObject]@{
-                Name   = $_.InstanceName
-                Type   = $_.ResourceName
-                File   = $LocationArgs[0]
-                Line   = $LocationArgs[1]
-
-            }
-        } | Format-Table
-    }
-
-}
-
-
-Import-Module PSScriptAnalyzer
-Import-Module Pester
-
-$Sources = Get-ChildItem -Path . -Include *.ps1 -Exclude *.Tests.ps1 -Recurse -Name
-$Tests   = Get-ChildItem -Path . -Include *.Tests.ps1 -Recurse -Name
-$Modules = Get-ChildItem -Path . -Include *.psd1 -Recurse -Name
+$Sources = Get-ChildItem -Path .\configs -Include *.ps1 -Recurse
+$Tests   = Get-ChildItem -Path .\tests -Include *.Tests.ps1 -Recurse
 
 # Synopsis: Statically analyses the codebase for badness.
-Add-BuildTask lint -Inputs ${Sources} -Outputs "${PSScriptRoot}/checkstyle.xml" {
+Add-BuildTask lint -Inputs $Sources -Outputs "${PSScriptRoot}/checkstyle.xml" {
+	Import-Module PSScriptAnalyzer
 
 	# Run the linter, producing a list of result objects.
 	$Results = Invoke-ScriptAnalyzer `
-			-Path "${PSScriptRoot}" `
+			-Path $PSScriptRoot `
 			-CustomRulePath "${PSScriptRoot}/.lint-rules" `
 			-RecurseCustomRulePath `
 			-IncludeDefaultRules `
@@ -97,55 +54,22 @@ Add-BuildTask lint -Inputs ${Sources} -Outputs "${PSScriptRoot}/checkstyle.xml" 
 			-Recurse
 
 	# Get the total count of errors in the results.
-	$ErrorCount = ${Results} `
-		| Where-Object { ${_}.Severity -eq [DiagnosticSeverity]::Error } `
+	$ErrorCount = $Results `
+		| Where-Object { $_.Severity -eq [DiagnosticSeverity]::Error } `
 		| Measure-Object
 
 	# Cannot have any errors at all
 	Assert-Build `
-		-Condition ( ${ErrorCount}.Count -eq 0 ) `
-		-Message "Cannot have any linting errors. $(${ErrorCount}.Count) errors found."
+		-Condition ( $ErrorCount.Count -eq 0 ) `
+		-Message "Cannot have any linting errors. $( $ErrorCount.Count ) errors found."
 
-	# Group results again by file to work better in the report.
-	$FileResults = ${Results} | Group-Object `
-		-Property ScriptName `
-		-AsHashTable
-
-	# Write a checkstyle-formatted report to disk.
-	# https://github.com/PowerShell/PSScriptAnalyzer/issues/1296
-	$XmlWriter = New-Object System.Xml.XmlTextWriter("${Outputs}", $Null)
-	try {
-		$XmlWriter.Formatting = 'Indented'
-		$XmlWriter.Indentation = 1
-		$XmlWriter.IndentChar = "`t"
-		$XmlWriter.WriteStartDocument()
-		$XmlWriter.WriteStartElement("checkstyle")
-		$XmlWriter.WriteAttributeString("version", "1.0.0")
-		foreach ($FileResult in (${FileResults} ?? @{}).GetEnumerator()) {
-			$XmlWriter.WriteStartElement("file")
-			$XmlWriter.WriteAttributeString("name", ${FileResult}.Name)
-			foreach ($Result in ${FileResult}.Value) {
-				$XmlWriter.WriteStartElement("error")
-				$XmlWriter.WriteAttributeString("line", ${Result}.Line)
-				$XmlWriter.WriteAttributeString("column", ${Result}.Column)
-				$XmlWriter.WriteAttributeString("severity", ${Result}.Severity)
-				$XmlWriter.WriteAttributeString("message", ${Result}.Message)
-				$XmlWriter.WriteAttributeString("source", ${Result}.RuleName)
-				$XmlWriter.WriteEndElement()
-			}
-			$XmlWriter.WriteEndElement()
-		}
-		$XmlWriter.WriteEndElement()
-		$XmlWriter.WriteEndDocument()
-		$XmlWriter.Flush()
-	} finally {
-		$XmlWriter.Close()
-	}
+	Write-ScriptAnalyzerCheckstyle $Results
 
 }
 
 # Synopsis: Generates JUnit and JaCoCo output using availabel Pester tests.
-Add-BuildTask test -Inputs ( ${Sources} + ${Tests} ) -Outputs junit.xml, coverage.xml {
+Add-BuildTask test -Inputs ( $Sources + $Tests ) -Outputs junit.xml, coverage.xml {
+	Import-Module Pester
 	# https://pester.dev/docs/commands/New-PesterConfiguration
 	Invoke-Pester -Configuration @{
 		Run = @{
@@ -170,32 +94,50 @@ Add-BuildTask test -Inputs ( ${Sources} + ${Tests} ) -Outputs junit.xml, coverag
 
 task 'dsc-install' {
 	Install-Module 'PSDscResources'
-	Install-Module 'xPSDesiredStateConfiguration'
+	Install-Module 'PSDesiredStateConfiguration' -MinimumVersion 2.0 -MaximumVersion 2.99
 }
 
-task 'dsc-build' -Inputs .\configs\powershell.ps1 -Outputs .\Workstation\localhost.mof {
- 	. .\configs\Powershell.ps1
+task 'dsc-build' -Inputs $Sources -Outputs .\Workstation\localhost.mof {
+	Import-Module PSDesiredStateConfiguration -MinimumVersion 2.0 -MaximumVersion 2.99
 
-	Import-Module 'xPSDesiredStateConfiguration'
+	# Sort out the configuration inputs before using them.
+	$Configs = $Input | ForEach-Object {
+		Write-Verbose "Loading config from $_"
+		. $_
+		$_ | Split-Path -LeafBase
+	}
 
- 	# TODO: This can probably be put in its own file.
-	Configuration Workstation {
- 		Node 'localhost' {
-   			Powershell
+	# Write-Debug "Creating workstation config from $( $Configs.GetEnumerator() )"
+	configuration Workstation {
+		Node 'localhost' {
+			$Configs | ForEach-Object {
+				Write-Verbose "Executing $_ within localhost node context."
+				& $_ -Verbose
+			}
 		}
- 	}
+	}
 
-	Workstation
+	Write-Debug "Executing Workstation config build."
+	Workstation -Verbose
+
 }
 
-task 'dsc-test' -Inputs .\Workstation\localhost.mof {
-	$Result = Test-Dsc-Configuration -Path .\Workstation
- 	Display-Status $Result
+task 'dsc-test' -Inputs .\Workstation\localhost.mof -Outputs .\Workstation\localhost.tested {
+	Test-DscConfiguration -Path .\Workstation `
+			-ErrorAction 'Stop' `
+		| Format-DscStatus
+	New-Item -Path $Outputs -Type File -Force | Out-Nulls
 }
 
-task 'dsc-apply' -Inputs .\Workstation\localhost.mof {
-	Start-DscConfiguration -Path .\Workstation -Force -Wait -Verbose
-	Display-Status ( Get-DscConfigurationStatus )
+task 'dsc-apply' -Inputs .\Workstation\localhost.mof -Outputs .\Workstation\localhost.applied {
+	Start-DscConfiguration `
+		-Path .\Workstation `
+		-Force `
+		-Wait `
+		-Verbose
+	Get-DscConfigurationStatus `
+		| Format-DscStatus
+	New-Item -Path $Outputs -Type File -Force | Out-Null
 }
 
 # Synopsis: Default task.

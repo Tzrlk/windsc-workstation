@@ -1,9 +1,10 @@
-#Require -PSEdition Core
-#Require -Module PSDscResources
+#!/usr/bin/env pwsh
+#Requires -PSEdition Core
+#Requires -Modules @{ ModuleName="PSDesiredStateConfiguration"; ModuleVersion="2.0"; MaximumVersion="2.99" }
+#Requires -Modules PSDscResources, cChoco
 
-Configuration ChocolateyInstall {
+configuration ChocolateyInstall {
 
-	Import-DscResource -Module cChoco
  	Import-DscResource –Module PSDesiredStateConfiguration
 
     Environment chocoInstall {
