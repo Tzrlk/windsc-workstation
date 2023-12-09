@@ -2,8 +2,13 @@
 
 # DSC Output
 *.mof
+
+# Build Output
 *.tested
 *.applied
+checkstyle.xml
+coverage.xml
+junit.xml
 
 # IntelliJ
 .idea/

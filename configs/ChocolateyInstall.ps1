@@ -6,14 +6,16 @@
 configuration ChocolateyInstall {
 
  	Import-DscResource –Module PSDesiredStateConfiguration
+	Import-DscResource -Module cChoco
 
-    Environment chocoInstall {
-        Name  = 'ChocolateyInstall'
-    }
+	cChocoInstaller installChoco {
+		InstallDir = Join-Path $env:ProgramData 'chocolatey'
+	}
 
-    File chocoInstall {
-		DependsOn       = '[Environment]chocoInstall'
-        DestinationPath = Join-Path $env:ChocolateyInstall 'choco.exe'
-    }
+	cChocoFeature useRememberedArgumentsForUpgrades {
+		DependsOn   = "[cChocoInstaller]installChoco"
+		FeatureName = 'useRememberedArgumentsForUpgrades'
+		Ensure      = 'Present'
+	}
 
 }
